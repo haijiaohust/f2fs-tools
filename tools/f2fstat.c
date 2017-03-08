@@ -48,6 +48,12 @@ unsigned long ssr_blks;
 unsigned long lfs_blks;
 unsigned long memory_kb;
 
+unsigned long logical_blk_cnt;
+unsigned long physical_blk_cnt;
+unsigned long dedupe_rate;
+unsigned long dedupe_all_cnt;
+
+
 struct options {
 	int delay;
 	int interval;
@@ -96,10 +102,14 @@ void f2fstat(struct options *opt)
 		{ "  - Prefree",	&prefree_segs,		0 },
 		{ "  - SITs",		&dirty_sit,		0 },
 		{ "  - Valid",		&valid_segs,		0 },
+		{ "  - dedupe_all",	&dedupe_all_cnt,	0 },	//for dedupe
 		{ "  - dents",		&dirty_dents,		0 },
+		{ "  - duprate",	&dedupe_rate,	0 },		//for dedupe
 		{ "  - free_nids",	&free_nids,		0 },
+		{ "  - lblk_cnt",	&logical_blk_cnt,	0 },	//for dedupe
 		{ "  - meta",		&dirty_meta,		KEY_META },
 		{ "  - nodes",		&dirty_node,		KEY_NODE },
+		{ "  - pblk_cnt",	&physical_blk_cnt,	0 },	//for dedupe
 		{ "CP calls",		&cp,			0 },
 		{ "GC calls",		&gc,			0 },
 		{ "LFS",		&lfs_blks,		0 },
@@ -214,7 +224,7 @@ void parse_option(int argc, char *argv[], struct options *opt)
 
 void __make_head(char *head, int index, int i, int len)
 {
-	char name_h[5][20] = {"main segments", "page/slab caches", "cp/gc", "blks", "memory"};
+	char name_h[6][20] = {"main segments", "dedupe" , "page/slab caches", "cp/gc", "blks", "memory"};
 	int half = (len - strlen(name_h[i])) / 2;
 
 	*(head + index) = '|';
@@ -230,7 +240,7 @@ void print_head(char *res)
 {
 	char *ptr, *ptr_buf;
 	char buf[1024], head[1024];
-	char name[20][10] = {"util", "node", "data", "free", "valid", "dirty", "prefree", "node", "dent", "meta",
+	char name[24][10] = {"util", "node", "data", "free", "valid", "dirty", "prefree", "lblk", "pblk", "drate", "all", "node", "dent", "meta",
 		"sit", "nat", "fnid", "cp", "gc", "ssr", "lfs", "total", "node", "meta"};
 	int i, len, prev_index = 0;
 
@@ -238,7 +248,7 @@ void print_head(char *res)
 	memset(buf, ' ', 1024);
 	memset(head, ' ', 1024);
 
-	for (i = 0; i < 20; i++) {
+	for (i = 0; i < 24; i++) {
 		ptr = (i == 0) ? strtok(res, " ") : strtok(NULL, " ");
 		strncpy(ptr_buf, name[i], strlen(name[i]));
 		if (i == 1) {
@@ -247,26 +257,30 @@ void print_head(char *res)
 			len = (ptr_buf - buf) - 1 - prev_index;
 			__make_head(head, prev_index, 0, len);
 			prev_index = ptr_buf - buf - 1;
-		} else if (i == 13) {
+		} else if (i == 11) {
 			len = (ptr_buf - buf) - 1 - prev_index;
 			__make_head(head, prev_index, 1, len);
 			prev_index = ptr_buf - buf - 1;
-		} else if (i == 15) {
+		} else if (i == 17) {
 			len = (ptr_buf - buf) - 1 - prev_index;
 			__make_head(head, prev_index, 2, len);
 			prev_index = ptr_buf - buf - 1;
-		} else if (i == 17) {
+		} else if (i == 19) {
 			len = (ptr_buf - buf) - 1 - prev_index;
 			__make_head(head, prev_index, 3, len);
 			prev_index = ptr_buf - buf - 1;
-		}
+		}else if (i == 21) {
+			len = (ptr_buf - buf) - 1 - prev_index;
+			__make_head(head, prev_index, 4, len);
+			prev_index = ptr_buf - buf - 1;
+  		}
 
 		len = strlen(ptr);
 		ptr_buf += (len > strlen(name[i]) ? len : strlen(name[i])) + 1;
 	}
 
 	len = (ptr_buf - buf) - 1 - prev_index;
-	__make_head(head, prev_index, 4, len);
+	__make_head(head, prev_index, 5, len);
 
 	*ptr_buf = 0;
 	*(head + (ptr_buf - buf - 1)) = '|';
@@ -276,7 +290,7 @@ void print_head(char *res)
 
 int main(int argc, char *argv[])
 {
-	char format[] = "%4ld %4ld %4ld %4ld %5ld %5ld %7ld %4ld %4ld %4ld %3ld %3ld %4ld %2ld %2ld %3ld %3ld %5ld %4ld %4ld";
+	char format[] = "%4ld %4ld %4ld %4ld %5ld %5ld %7ld %4ld %4ld %4ld%% %3ld %4ld %4ld %4ld %3ld %3ld %4ld %2ld %2ld %3ld %3ld %5ld %4ld %4ld";
 	char buf[1024], tmp[1024];
 	int head_interval;
 	struct options opt = {
@@ -292,9 +306,10 @@ int main(int argc, char *argv[])
 		memset(buf, 0, 1024);
 		f2fstat(&opt);
 		sprintf(buf, format, util, used_node_blks, used_data_blks,
-			free_segs, valid_segs, dirty_segs, prefree_segs,
+			free_segs, valid_segs, dirty_segs, prefree_segs,logical_blk_cnt, physical_blk_cnt, dedupe_rate, dedupe_all_cnt,
 			dirty_node, dirty_dents, dirty_meta, dirty_sit, nat_caches, free_nids,
-			cp, gc, ssr_blks, lfs_blks, memory_kb, node_kb, meta_kb);
+			cp, gc, ssr_blks, lfs_blks, memory_kb, node_kb, meta_kb
+			);
 
 		strcpy(tmp, buf);
 		if (head_interval == opt.interval)
