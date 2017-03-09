@@ -274,13 +274,17 @@ static int f2fs_prepare_super_block(void)
 
 	set_sb(segment_count_nat, get_sb(segment_count_nat) * 2);
 
-	set_sb(ssa_blkaddr, get_sb(nat_blkaddr) + get_sb(segment_count_nat) *
+	set_sb(segment_count_dedupe, 12);
+	set_sb(dedupe_blkaddr, get_sb(nat_blkaddr) + get_sb(segment_count_nat)*config.blks_per_seg);
+
+	set_sb(ssa_blkaddr, get_sb(dedupe_blkaddr) + get_sb(segment_count_dedupe) *
 			config.blks_per_seg);
 
 	total_valid_blks_available = (get_sb(segment_count) -
 			(get_sb(segment_count_ckpt) +
 			get_sb(segment_count_sit) +
-			get_sb(segment_count_nat))) *
+			get_sb(segment_count_nat) +
+			get_sb(segment_count_dedupe))) *
 			config.blks_per_seg;
 
 	blocks_for_ssa = total_valid_blks_available /
@@ -291,6 +295,7 @@ static int f2fs_prepare_super_block(void)
 	total_meta_segments = get_sb(segment_count_ckpt) +
 		get_sb(segment_count_sit) +
 		get_sb(segment_count_nat) +
+		get_sb(segment_count_dedupe) +
 		get_sb(segment_count_ssa);
 	diff = total_meta_segments % (config.segs_per_zone);
 	if (diff)
@@ -304,6 +309,7 @@ static int f2fs_prepare_super_block(void)
 			(get_sb(segment_count_ckpt) +
 			 get_sb(segment_count_sit) +
 			 get_sb(segment_count_nat) +
+			 get_sb(segment_count_dedupe) +
 			 get_sb(segment_count_ssa)));
 
 	set_sb(section_count, get_sb(segment_count_main) / config.segs_per_sec);
@@ -434,6 +440,41 @@ static int f2fs_init_nat_area(void)
 	free(nat_buf);
 	return 0 ;
 }
+
+static int f2fs_init_dedupe_area(void)
+{
+	u_int32_t blk_size, seg_size;
+	u_int32_t index = 0;
+	u_int64_t dedupe_seg_addr = 0;
+	u_int8_t *zero_buf = NULL;
+
+	blk_size = 1 << get_sb(log_blocksize);
+	seg_size = (1 << get_sb(log_blocks_per_seg)) * blk_size;
+
+	zero_buf = calloc(sizeof(u_int8_t), seg_size);
+	if(zero_buf == NULL) {
+		MSG(1, "\tError: Calloc Failed for dedupe_zero_buf!!!\n");
+		return -1;
+	}
+
+	dedupe_seg_addr = get_sb(dedupe_blkaddr);
+	dedupe_seg_addr *= blk_size;
+
+	DBG(1, "\tFilling dedupe area at offset 0x%08"PRIx64"\n", dedupe_seg_addr);
+	for (index = 0; index < get_sb(segment_count_dedupe); index++) {
+		if (dev_fill(zero_buf, dedupe_seg_addr, seg_size)) {
+			MSG(1, "\tError: While zeroing out the dedupe area \
+					on disk!!!\n");
+			free(zero_buf);
+			return -1;
+		}
+		dedupe_seg_addr += seg_size;
+	}
+
+	free(zero_buf);
+	return 0 ;
+}
+
 
 static int f2fs_write_check_point_pack(void)
 {
@@ -935,6 +976,12 @@ int f2fs_format_device(void)
 	err = f2fs_init_nat_area();
 	if (err < 0) {
 		MSG(0, "\tError: Failed to Initialise the NAT AREA!!!\n");
+		goto exit;
+	}
+
+	err = f2fs_init_dedupe_area();
+	if (err < 0) {
+		MSG(0, "\tError: Failed to Initialise the DEDUPE AREA!!!\n");
 		goto exit;
 	}
 

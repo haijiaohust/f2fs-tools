@@ -353,6 +353,9 @@ struct f2fs_super_block {
 	__le32 cp_payload;
 	__u8 version[VERSION_LEN];	/* the kernel version */
 	__u8 init_version[VERSION_LEN];	/* the initial kernel version */
+	__u8 reserved[21];
+	__le32 segment_count_dedupe;	/* # of segments for Dedupe */
+ 	__le32 dedupe_blkaddr;		/* start block address of Dedupe */
 } __attribute__((packed));
 
 /*
